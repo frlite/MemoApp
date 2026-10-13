@@ -32,9 +32,14 @@ jobs:
       if: startsWith(github.ref, 'refs/tags/')
       env:
         KEYSTORE_B64: ${{ secrets.RELEASE_KEYSTORE_BASE64 }}
+        RELEASE_STORE_PASSWORD: ${{ secrets.RELEASE_STORE_PASSWORD }}
       run: |
         mkdir -p "$RUNNER_TEMP/keystore"
         echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/keystore/release.jks"
+        echo "keystore 大小: $(stat -c%s "$RUNNER_TEMP/keystore/release.jks") bytes"
+        openssl pkcs12 -in "$RUNNER_TEMP/keystore/release.jks" \
+          -passin pass:"$RELEASE_STORE_PASSWORD" -nokeys -noout \
+          && echo "keystore 可正常读取"
 
     - name: Build release APK
       if: startsWith(github.ref, 'refs/tags/')
@@ -43,7 +48,8 @@ jobs:
         RELEASE_STORE_PASSWORD: ${{ secrets.RELEASE_STORE_PASSWORD }}
         RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
         RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
-      run: ./gradlew assembleRelease
+      run: |
+        ./gradlew printReleaseSigningStatus assembleRelease
 
     - name: Build debug APK
       if: startsWith(github.ref, 'refs/')
