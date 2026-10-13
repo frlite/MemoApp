@@ -27,34 +27,33 @@ jobs:
     - name: Grant execute permission for gradlew
       run: chmod +x gradlew
 
-    # 打 tag 发布时才需要签名密钥
+    # apksigner 在 Android SDK build-tools 中，temurin JDK 不自带
+    - name: Setup Android build-tools
+      if: startsWith(github.ref, 'refs/tags/')
+      run: |
+        curl -sL https://dl.google.com/android/repository/build-tools_r34-linux.zip -o /tmp/bt.zip
+        python3 -c "import zipfile; zipfile.ZipFile('/tmp/bt.zip').extractall('/tmp/bt')"
+        chmod +x /tmp/bt/android-14/apksigner
+
     - name: Decode release keystore
       if: startsWith(github.ref, 'refs/tags/')
       env:
         KEYSTORE_B64: ${{ secrets.RELEASE_KEYSTORE_BASE64 }}
-        RELEASE_STORE_PASSWORD: ${{ secrets.RELEASE_STORE_PASSWORD }}
-      run: |
-        mkdir -p "$RUNNER_TEMP/keystore"
-        echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/keystore/release.jks"
-        echo "keystore 大小: $(stat -c%s "$RUNNER_TEMP/keystore/release.jks") bytes"
-        openssl pkcs12 -in "$RUNNER_TEMP/keystore/release.jks" \
-          -passin pass:"$RELEASE_STORE_PASSWORD" -nokeys -noout \
-          && echo "keystore 可正常读取"
+      run: echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/release.jks"
 
     - name: Build release APK
       if: startsWith(github.ref, 'refs/tags/')
       env:
-        RELEASE_STORE_FILE: ${{ runner.temp }}/keystore/release.jks
+        RELEASE_STORE_FILE: ${{ runner.temp }}/release.jks
         RELEASE_STORE_PASSWORD: ${{ secrets.RELEASE_STORE_PASSWORD }}
         RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
         RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
       run: |
-        ./gradlew printReleaseSigningStatus assembleRelease \
+        ./gradlew assembleRelease \
           -PRELEASE_STORE_FILE="$RELEASE_STORE_FILE" \
           -PRELEASE_STORE_PASSWORD="$RELEASE_STORE_PASSWORD" \
           -PRELEASE_KEY_ALIAS="$RELEASE_KEY_ALIAS" \
-          -PRELEASE_KEY_PASSWORD="$RELEASE_KEY_PASSWORD" \
-          --no-configuration-cache
+          -PRELEASE_KEY_PASSWORD="$RELEASE_KEY_PASSWORD"
 
     - name: Build debug APK
       if: startsWith(github.ref, 'refs/')
@@ -67,49 +66,12 @@ jobs:
         name: 备忘录-debug-${{ github.run_number }}
         path: app/build/outputs/apk/debug/*.apk
 
+    # 用官方工具验证签名，失败即中止，避免发布未签名包
     - name: Verify APK signature
       if: startsWith(github.ref, 'refs/tags/')
       run: |
-        python3 - <<'PY'
-        import glob, struct, sys, zipfile
-        apk = glob.glob('app/build/outputs/apk/release/*.apk')[0]
-        d = open(apk, 'rb').read()
-
-        # APK 签名块紧邻中央目录之前：[size:8][pairs][size:8][magic:16]
-        eocd = d.rfind(b'\x50\x4b\x05\x06')
-        cd = struct.unpack('<I', d[eocd+16:eocd+20])[0]
-        MAGIC = b'APK Sig Block 42'
-
-        if d[cd-16:cd] != MAGIC:
-            sys.exit('ERROR: APK 未签名（中央目录前无签名块）')
-
-        size = struct.unpack('<Q', d[cd-24:cd-16])[0]
-        pairs = d[cd-size:cd-24]
-
-        # 签名算法 ID: 0x0101=RSA+SHA256, 0x0103=ECDSA+SHA256, 0x0301=RSAPSS+SHA256
-        algos = {0x0101, 0x0102, 0x0103, 0x0301, 0x0421, 0x0201}
-        found, p = [], 0
-        while p + 12 <= len(pairs):
-            ln = struct.unpack('<Q', pairs[p:p+8])[0]
-            if ln == 0 or p + 8 + ln > len(pairs):
-                break
-            kid = struct.unpack('<I', pairs[p+8:p+12])[0]
-            if kid in algos:
-                found.append(kid)
-            p += 8 + ln
-
-        if not found:
-            sys.exit('ERROR: 签名块存在但未找到签名算法 ID')
-
-        names = zipfile.ZipFile(apk).namelist()
-        v1 = any(n.startswith('META-INF/') and n.upper().endswith(('.RSA', '.DSA', '.EC')) for n in names)
-
-        print('APK 签名验证通过')
-        print('  v2/v3 签名块: 存在,', size, 'bytes')
-        print('  v1 (JAR) 签名:', '有' if v1 else '无 (正常，v2+ 已足够)')
-        print('  签名算法 ID:', [hex(a) for a in found])
-        print('  文件大小:', len(d), 'bytes')
-        PY
+        /tmp/bt/android-14/apksigner verify --print-certs \
+          app/build/outputs/apk/release/*.apk
 
     - name: Create GitHub Release
       if: startsWith(github.ref, 'refs/tags/')
@@ -120,37 +82,3 @@ jobs:
           --title "备忘录 ${GITHUB_REF_NAME}" \
           --generate-notes \
           app/build/outputs/apk/release/*.apk
-
-  signcheck:
-    runs-on: ubuntu-latest
-    steps:
-    - uses: actions/checkout@v4
-    - uses: actions/setup-java@v4
-      with:
-        java-version: '17'
-        distribution: 'temurin'
-    - name: Decode keystore
-      env:
-        KEYSTORE_B64: ${{ secrets.RELEASE_KEYSTORE_BASE64 }}
-        P: ${{ secrets.RELEASE_STORE_PASSWORD }}
-      run: echo "$KEYSTORE_B64" | base64 -d > /tmp/rel.jks
-    - name: Sign a test APK with the same config
-      env:
-        RELEASE_STORE_FILE: /tmp/rel.jks
-        RELEASE_STORE_PASSWORD: ${{ secrets.RELEASE_STORE_PASSWORD }}
-        RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
-        RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
-      run: |
-        chmod +x gradlew
-        ./gradlew assembleRelease \
-          -PRELEASE_STORE_FILE="$RELEASE_STORE_FILE" \
-          -PRELEASE_STORE_PASSWORD="$RELEASE_STORE_PASSWORD" \
-          -PRELEASE_KEY_ALIAS="$RELEASE_KEY_ALIAS" \
-          -PRELEASE_KEY_PASSWORD="$RELEASE_KEY_PASSWORD"
-        ls -la app/build/outputs/apk/release/
-    - name: Verify with apksigner
-      run: |
-        curl -sL https://dl.google.com/android/repository/build-tools_r34-linux.zip -o /tmp/bt.zip
-        python3 -c "import zipfile; zipfile.ZipFile('/tmp/bt.zip').extractall('/tmp/bt')"
-        chmod +x /tmp/bt/android-14/apksigner
-        /tmp/bt/android-14/apksigner verify --print-certs app/build/outputs/apk/release/*.apk
