@@ -1,7 +1,8 @@
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
-    id("kotlin-kapt")
+    // Room 注解处理需要 kapt，版本跟随 Kotlin 插件
+    id("org.jetbrains.kotlin.kapt")
 }
 
 android {
