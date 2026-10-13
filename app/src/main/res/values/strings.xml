@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">备忘录</string>
+
+    <string name="empty_hint">还没有备忘录\n点击右下角 + 新建一条</string>
+    <string name="untitled">无标题</string>
+    <string name="no_content">（空白）</string>
+
+    <string name="title_new_memo">新建备忘录</string>
+    <string name="title_edit_memo">编辑备忘录</string>
+    <string name="hint_content">开始输入…</string>
+
+    <string name="cd_add_memo">新建备忘录</string>
+    <string name="cd_delete">删除</string>
+
+    <string name="action_delete_all">清空全部</string>
+
+    <string name="dialog_delete_title">删除这条备忘录？</string>
+    <string name="dialog_delete_msg">「%1$s」将被永久删除</string>
+    <string name="dialog_delete_all_title">清空全部备忘录？</string>
+    <string name="dialog_delete_all_msg">所有备忘录将被永久删除，此操作无法撤销。</string>
+    <string name="dialog_delete_confirm">删除</string>
+</resources>
