@@ -5,6 +5,21 @@ plugins {
     id("org.jetbrains.kotlin.kapt")
 }
 
+// 在脚本顶层读取签名信息，避免在 android {} 内读取时机不确定。
+// 本地构建可在 gradle.properties 中配置；CI 通过环境变量注入。
+val releaseStoreFile: String? =
+    (project.findProperty("RELEASE_STORE_FILE") as String?) ?: System.getenv("RELEASE_STORE_FILE")
+val releaseStorePassword: String? =
+    (project.findProperty("RELEASE_STORE_PASSWORD") as String?) ?: System.getenv("RELEASE_STORE_PASSWORD")
+val releaseKeyAlias: String? =
+    (project.findProperty("RELEASE_KEY_ALIAS") as String?) ?: System.getenv("RELEASE_KEY_ALIAS")
+val releaseKeyPassword: String? =
+    (project.findProperty("RELEASE_KEY_PASSWORD") as String?) ?: System.getenv("RELEASE_KEY_PASSWORD")
+
+val hasReleaseSigning = listOf(
+    releaseStoreFile, releaseStorePassword, releaseKeyAlias, releaseKeyPassword
+).all { !it.isNullOrBlank() }
+
 android {
     namespace = "com.example.memoapp"
     compileSdk = 34
@@ -18,18 +33,12 @@ android {
     }
 
     signingConfigs {
-        create("release") {
-            // 从 gradle.properties 或环境变量读取，避免把密钥写进仓库
-            val storePath = (findProperty("RELEASE_STORE_FILE") as String?)
-                ?: System.getenv("RELEASE_STORE_FILE")
-            if (storePath != null) {
-                storeFile = file(storePath)
-                storePassword = (findProperty("RELEASE_STORE_PASSWORD") as String?)
-                    ?: System.getenv("RELEASE_STORE_PASSWORD")
-                keyAlias = (findProperty("RELEASE_KEY_ALIAS") as String?)
-                    ?: System.getenv("RELEASE_KEY_ALIAS")
-                keyPassword = (findProperty("RELEASE_KEY_PASSWORD") as String?)
-                    ?: System.getenv("RELEASE_KEY_PASSWORD")
+        if (hasReleaseSigning) {
+            create("release") {
+                storeFile = file(releaseStoreFile!!)
+                storePassword = releaseStorePassword
+                keyAlias = releaseKeyAlias
+                keyPassword = releaseKeyPassword
             }
         }
     }
@@ -41,8 +50,7 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
-            // 仅在提供签名信息时启用，否则产出未签名包
-            if (findProperty("RELEASE_STORE_FILE") != null || System.getenv("RELEASE_STORE_FILE") != null) {
+            if (hasReleaseSigning) {
                 signingConfig = signingConfigs.getByName("release")
             }
         }
@@ -59,6 +67,13 @@ android {
 
     buildFeatures {
         viewBinding = true
+    }
+}
+
+tasks.register("printReleaseSigningStatus") {
+    doLast {
+        println("签名信息完整: $hasReleaseSigning")
+        println("keystore 路径: ${releaseStoreFile ?: "(未配置)"}")
     }
 }
 
