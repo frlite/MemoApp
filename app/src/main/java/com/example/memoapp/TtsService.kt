@@ -11,6 +11,7 @@ import android.content.pm.ServiceInfo
 import android.os.Binder
 import android.os.Build
 import android.os.IBinder
+import android.os.PowerManager
 import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
 import androidx.core.app.NotificationCompat
@@ -38,6 +39,12 @@ class TtsService : Service(), TextToSpeech.OnInitListener {
     /** 正在朗读的备忘录 id，通知栏点击后据此回到对应详情页。 */
     private var currentMemoId: Long = NO_MEMO
 
+    /**
+     * 朗读期间持有部分唤醒锁，避免设备深度休眠导致
+     * TTS 回调延迟、循环间隔被拉长。
+     */
+    private var wakeLock: PowerManager.WakeLock? = null
+
     private val binder = LocalBinder()
 
     inner class LocalBinder : Binder() {
@@ -57,6 +64,8 @@ class TtsService : Service(), TextToSpeech.OnInitListener {
         private const val NOTIFICATION_ID = 1001
         private const val UTTERANCE_ID = "memo_tts_utterance"
         private const val ACTION_STOP = "com.example.memoapp.action.TTS_STOP"
+        private const val WAKE_LOCK_TAG = "MemoApp:TtsPlayback"
+        private const val WAKE_LOCK_TIMEOUT_MS = 60 * 60 * 1000L
 
         /** 表示当前没有关联的备忘录（例如尚未保存的新建内容）。 */
         const val NO_MEMO = -1L
@@ -144,12 +153,14 @@ class TtsService : Service(), TextToSpeech.OnInitListener {
         currentMemoId = memoId
 
         enterForeground()
+        acquireWakeLock()
         isPlaying = true
 
         if (speakCurrent()) {
             callback?.onPlayingChanged(true)
         } else {
             isPlaying = false
+            releaseWakeLock()
             exitForeground()
             callback?.onSpeakFailed(getString(R.string.tts_error_speak))
         }
@@ -159,6 +170,7 @@ class TtsService : Service(), TextToSpeech.OnInitListener {
         val wasPlaying = isPlaying
         isPlaying = false
         tts?.stop()
+        releaseWakeLock()
         exitForeground()
         if (isForegroundStartedByService) stopSelf()
         if (wasPlaying) callback?.onPlayingChanged(false)
@@ -201,6 +213,25 @@ class TtsService : Service(), TextToSpeech.OnInitListener {
         if (!isForeground) return
         stopForeground(STOP_FOREGROUND_REMOVE)
         isForeground = false
+    }
+
+    /**
+     * 获取唤醒锁，保持 CPU 在锁屏休眠期间继续处理 TTS 回调。
+     * 带超时获取，异常情况下不会永久持有。
+     */
+    private fun acquireWakeLock() {
+        if (wakeLock?.isHeld == true) return
+
+        val pm = getSystemService(Context.POWER_SERVICE) as? PowerManager ?: return
+        wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, WAKE_LOCK_TAG).apply {
+            setReferenceCounted(false)
+            acquire(WAKE_LOCK_TIMEOUT_MS)
+        }
+    }
+
+    private fun releaseWakeLock() {
+        wakeLock?.let { if (it.isHeld) it.release() }
+        wakeLock = null
     }
 
     private fun createNotificationChannel() {
@@ -249,6 +280,7 @@ class TtsService : Service(), TextToSpeech.OnInitListener {
 
     override fun onDestroy() {
         isPlaying = false
+        releaseWakeLock()
         tts?.stop()
         tts?.shutdown()
         tts = null

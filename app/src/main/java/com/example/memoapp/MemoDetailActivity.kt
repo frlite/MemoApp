@@ -9,6 +9,7 @@ import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
 import android.os.IBinder
+import android.os.PowerManager
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
@@ -56,6 +57,15 @@ class MemoDetailActivity : AppCompatActivity(), TtsService.TtsCallback {
     private val requestNotificationPermission = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { _ -> }
+
+    /** 电池优化豁免设置页返回后回调，用于提示当前状态。 */
+    private val batterySettingsLauncher = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { _ ->
+        if (!isBatteryOptimizationIgnored()) {
+            showStatus(getString(R.string.battery_opt_denied))
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -116,6 +126,40 @@ class MemoDetailActivity : AppCompatActivity(), TtsService.TtsCallback {
         }
     }
 
+    /** 应用是否已豁免电池优化。 */
+    private fun isBatteryOptimizationIgnored(): Boolean {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) return true
+        val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
+        return pm.isIgnoringBatteryOptimizations(packageName)
+    }
+
+    /**
+     * 首次朗读时引导用户豁免电池优化，否则锁屏一段时间后
+     * 系统可能终止服务导致朗读中断。仅在未豁免时提示一次。
+     */
+    private fun ensureBatteryOptimizationExempt() {
+        if (isBatteryOptimizationIgnored()) return
+        if (getPreferences(MODE_PRIVATE).getBoolean(KEY_BATTERY_PROMPTED, false)) return
+
+        getPreferences(MODE_PRIVATE).edit().putBoolean(KEY_BATTERY_PROMPTED, true).apply()
+
+        // 部分 ROM 对直接跳转有限制，失败时静默跳过，用户可自行在系统设置开启
+        runCatching {
+            startActivity(
+                Intent(
+                    android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
+                    android.net.Uri.parse("package:$packageName")
+                )
+            )
+        }.onFailure {
+            runCatching {
+                startActivity(
+                    Intent(android.provider.Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
+                )
+            }
+        }
+    }
+
     private fun setupSliders() {
         updateSpeedLabel(binding.sliderSpeed.value)
         updatePitchLabel(binding.sliderPitch.value)
@@ -152,6 +196,8 @@ class MemoDetailActivity : AppCompatActivity(), TtsService.TtsCallback {
                 save { savedId ->
                     if (savedId == NEW_MEMO) return@save
                     binding.toolbar.setTitle(R.string.title_edit_memo)
+                    // 引导豁免电池优化，提升锁屏持续朗读的存活率
+                    ensureBatteryOptimizationExempt()
                     // 先拉起前台服务，保证离开本页后仍能继续朗读
                     TtsService.start(this@MemoDetailActivity)
                     service.speak(
@@ -301,5 +347,6 @@ class MemoDetailActivity : AppCompatActivity(), TtsService.TtsCallback {
         const val EXTRA_MEMO_ID = "extra_memo_id"
         private const val NEW_MEMO = -1L
         private const val STATUS_RESET_MS = 2500L
+        private const val KEY_BATTERY_PROMPTED = "battery_opt_prompted"
     }
 }
