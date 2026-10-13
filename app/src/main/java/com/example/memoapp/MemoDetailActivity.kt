@@ -96,7 +96,7 @@ class MemoDetailActivity : AppCompatActivity(), TtsService.TtsCallback {
         existingMemo = null
         binding.etContent.setText("")
         binding.toolbar.setTitle(R.string.title_new_memo)
-        loadMemo()
+        loadMemo(switchPlayback = true)
     }
 
     private fun bindTtsService() {
@@ -186,7 +186,12 @@ class MemoDetailActivity : AppCompatActivity(), TtsService.TtsCallback {
 
     private val statusResetter = Runnable { binding.tvStatus.setText(R.string.status_idle) }
 
-    private fun loadMemo() {
+    /**
+     * @param switchPlayback true 表示用户主动切换到这条备忘录（如点通知），
+     *        此时若正在朗读其他内容则切过来；false 表示仅恢复界面
+     *        （如屏幕旋转重建），不能打断正在进行的播放。
+     */
+    private fun loadMemo(switchPlayback: Boolean = false) {
         lifecycleScope.launch {
             val memo = database.memoDao().getMemoById(memoId)
             if (memo == null) {
@@ -198,15 +203,16 @@ class MemoDetailActivity : AppCompatActivity(), TtsService.TtsCallback {
                 binding.sliderPitch.value = memo.pitch
                 binding.toolbar.setTitle(R.string.title_edit_memo)
 
-                // 若正在朗读的是别的备忘录，切到这一条并沿用它保存的语速音调
-                val service = ttsService
-                if (service != null && service.isPlaying()) {
-                    service.speak(
-                        memo.content,
-                        memo.speechRate,
-                        memo.pitch,
-                        memo.id
-                    )
+                if (switchPlayback) {
+                    val service = ttsService
+                    if (service != null && service.isPlaying()) {
+                        service.speak(
+                            memo.content,
+                            memo.speechRate,
+                            memo.pitch,
+                            memo.id
+                        )
+                    }
                 }
             }
             isLoaded = true
