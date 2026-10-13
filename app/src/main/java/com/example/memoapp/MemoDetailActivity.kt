@@ -81,6 +81,24 @@ class MemoDetailActivity : AppCompatActivity(), TtsService.TtsCallback {
         if (isBound) updatePlayButton(ttsService?.isPlaying() == true)
     }
 
+    /**
+     * 通知栏点击进入时，若已有实例则走这里而不是 onCreate。
+     * 需要加载目标备忘录，并把内容同步到界面。
+     */
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+
+        val targetId = intent.getLongExtra(EXTRA_MEMO_ID, NEW_MEMO)
+        if (targetId == NEW_MEMO || targetId == memoId) return
+
+        memoId = targetId
+        existingMemo = null
+        binding.etContent.setText("")
+        binding.toolbar.setTitle(R.string.title_new_memo)
+        loadMemo()
+    }
+
     private fun bindTtsService() {
         bindService(
             Intent(this, TtsService::class.java),
@@ -130,9 +148,19 @@ class MemoDetailActivity : AppCompatActivity(), TtsService.TtsCallback {
                     binding.etContent.error = getString(R.string.hint_content)
                     return@setOnClickListener
                 }
-                // 先拉起前台服务，保证离开本页后仍能继续朗读
-                TtsService.start(this)
-                service.speak(text, binding.sliderSpeed.value, binding.sliderPitch.value)
+                // 先落库拿到真实 id，通知栏点击才能回到这条备忘录
+                save { savedId ->
+                    if (savedId == NEW_MEMO) return@save
+                    binding.toolbar.setTitle(R.string.title_edit_memo)
+                    // 先拉起前台服务，保证离开本页后仍能继续朗读
+                    TtsService.start(this@MemoDetailActivity)
+                    service.speak(
+                        text,
+                        binding.sliderSpeed.value,
+                        binding.sliderPitch.value,
+                        savedId
+                    )
+                }
             }
         }
     }
@@ -169,6 +197,17 @@ class MemoDetailActivity : AppCompatActivity(), TtsService.TtsCallback {
                 binding.sliderSpeed.value = memo.speechRate
                 binding.sliderPitch.value = memo.pitch
                 binding.toolbar.setTitle(R.string.title_edit_memo)
+
+                // 若正在朗读的是别的备忘录，切到这一条并沿用它保存的语速音调
+                val service = ttsService
+                if (service != null && service.isPlaying()) {
+                    service.speak(
+                        memo.content,
+                        memo.speechRate,
+                        memo.pitch,
+                        memo.id
+                    )
+                }
             }
             isLoaded = true
         }
@@ -179,24 +218,39 @@ class MemoDetailActivity : AppCompatActivity(), TtsService.TtsCallback {
         if (isLoaded) save()
     }
 
-    private fun save() {
+    private fun save(onSaved: ((Long) -> Unit)? = null) {
         val content = binding.etContent.text.toString().trim()
         val rate = binding.sliderSpeed.value
         val pitch = binding.sliderPitch.value
         val current = existingMemo
 
-        if (current == null && content.isEmpty()) return
+        if (current == null && content.isEmpty()) {
+            onSaved?.invoke(NEW_MEMO)
+            return
+        }
         if (current != null &&
             current.content == content &&
             current.speechRate == rate &&
             current.pitch == pitch
-        ) return
+        ) {
+            onSaved?.invoke(current.id)
+            return
+        }
 
         lifecycleScope.launch {
             if (current == null) {
-                database.memoDao().insert(
+                val newId = database.memoDao().insert(
                     MemoEntity(content = content, speechRate = rate, pitch = pitch)
                 )
+                // 回填 id，使后续保存走更新分支、朗读能关联到这条备忘录
+                memoId = newId
+                existingMemo = MemoEntity(
+                    id = newId,
+                    content = content,
+                    speechRate = rate,
+                    pitch = pitch
+                )
+                onSaved?.invoke(newId)
             } else {
                 database.memoDao().update(
                     current.copy(
@@ -206,6 +260,7 @@ class MemoDetailActivity : AppCompatActivity(), TtsService.TtsCallback {
                         updatedAt = System.currentTimeMillis()
                     )
                 )
+                onSaved?.invoke(current.id)
             }
         }
     }

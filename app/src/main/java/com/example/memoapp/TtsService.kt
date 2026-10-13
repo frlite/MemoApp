@@ -35,6 +35,9 @@ class TtsService : Service(), TextToSpeech.OnInitListener {
     private var currentRate: Float = 1.0f
     private var currentPitch: Float = 1.0f
 
+    /** 正在朗读的备忘录 id，通知栏点击后据此回到对应详情页。 */
+    private var currentMemoId: Long = NO_MEMO
+
     private val binder = LocalBinder()
 
     inner class LocalBinder : Binder() {
@@ -54,6 +57,9 @@ class TtsService : Service(), TextToSpeech.OnInitListener {
         private const val NOTIFICATION_ID = 1001
         private const val UTTERANCE_ID = "memo_tts_utterance"
         private const val ACTION_STOP = "com.example.memoapp.action.TTS_STOP"
+
+        /** 表示当前没有关联的备忘录（例如尚未保存的新建内容）。 */
+        const val NO_MEMO = -1L
 
         fun start(context: Context) {
             val intent = Intent(context, TtsService::class.java)
@@ -119,8 +125,9 @@ class TtsService : Service(), TextToSpeech.OnInitListener {
 
     /**
      * 开始朗读。引擎不可用或内容为空时通过回调返回原因，不静默失败。
+     * memoId 用于让通知栏点击后回到正在朗读的备忘录。
      */
-    fun speak(text: String, rate: Float, pitch: Float) {
+    fun speak(text: String, rate: Float, pitch: Float, memoId: Long) {
         if (!isTtsReady) {
             callback?.onSpeakFailed(getString(R.string.tts_error_not_ready))
             return
@@ -134,6 +141,7 @@ class TtsService : Service(), TextToSpeech.OnInitListener {
         currentText = content
         currentRate = rate
         currentPitch = pitch
+        currentMemoId = memoId
 
         enterForeground()
         isPlaying = true
@@ -207,9 +215,18 @@ class TtsService : Service(), TextToSpeech.OnInitListener {
     }
 
     private fun buildNotification(): Notification {
+        // 点击通知回到正在朗读的备忘录。
+        // requestCode 随 memoId 变化，否则 PendingIntent 会被复用导致 id 不更新。
         val contentIntent = PendingIntent.getActivity(
-            this, 0, Intent(this, MemoDetailActivity::class.java),
-            PendingIntent.FLAG_IMMUTABLE
+            this,
+            currentMemoId.toInt() + 1,
+            Intent(this, MemoDetailActivity::class.java).apply {
+                if (currentMemoId != NO_MEMO) {
+                    putExtra(MemoDetailActivity.EXTRA_MEMO_ID, currentMemoId)
+                }
+                flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            },
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
         val stopIntent = PendingIntent.getService(
             this, 1, Intent(this, TtsService::class.java).setAction(ACTION_STOP),
