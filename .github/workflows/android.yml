@@ -70,18 +70,45 @@ jobs:
     - name: Verify APK signature
       if: startsWith(github.ref, 'refs/tags/')
       run: |
-        # temurin JDK 不含 apksigner，改用签名块检查
         python3 - <<'PY'
-        import glob, zipfile, sys
+        import glob, struct, sys, zipfile
         apk = glob.glob('app/build/outputs/apk/release/*.apk')[0]
-        data = open(apk, 'rb').read()
-        magic = b'APK Sig Block 42'
-        if data.count(magic) != 2:
-            sys.exit(f'ERROR: APK 未签名 (签名块出现 {data.count(magic)} 次，应为 2 次)')
+        d = open(apk, 'rb').read()
+
+        # APK 签名块紧邻中央目录之前：[size:8][pairs][size:8][magic:16]
+        eocd = d.rfind(b'\x50\x4b\x05\x06')
+        cd = struct.unpack('<I', d[eocd+16:eocd+20])[0]
+        MAGIC = b'APK Sig Block 42'
+
+        if d[cd-16:cd] != MAGIC:
+            sys.exit('ERROR: APK 未签名（中央目录前无签名块）')
+
+        size = struct.unpack('<Q', d[cd-24:cd-16])[0]
+        pairs = d[cd-size:cd-24]
+
+        # 签名算法 ID: 0x0101=RSA+SHA256, 0x0103=ECDSA+SHA256, 0x0301=RSAPSS+SHA256
+        algos = {0x0101, 0x0102, 0x0103, 0x0301, 0x0421, 0x0201}
+        found, p = [], 0
+        while p + 12 <= len(pairs):
+            ln = struct.unpack('<Q', pairs[p:p+8])[0]
+            if ln == 0 or p + 8 + ln > len(pairs):
+                break
+            kid = struct.unpack('<I', pairs[p+8:p+12])[0]
+            if kid in algos:
+                found.append(kid)
+            p += 8 + ln
+
+        if not found:
+            sys.exit('ERROR: 签名块存在但未找到签名算法 ID')
+
         names = zipfile.ZipFile(apk).namelist()
-        print('APK 签名有效')
-        print('  v2/v3 签名块: 存在')
-        print('  文件大小:', len(data), 'bytes')
+        v1 = any(n.startswith('META-INF/') and n.upper().endswith(('.RSA', '.DSA', '.EC')) for n in names)
+
+        print('APK 签名验证通过')
+        print('  v2/v3 签名块: 存在,', size, 'bytes')
+        print('  v1 (JAR) 签名:', '有' if v1 else '无 (正常，v2+ 已足够)')
+        print('  签名算法 ID:', [hex(a) for a in found])
+        print('  文件大小:', len(d), 'bytes')
         PY
 
     - name: Create GitHub Release
