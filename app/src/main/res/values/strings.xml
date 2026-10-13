@@ -20,4 +20,18 @@
     <string name="dialog_delete_all_title">清空全部备忘录？</string>
     <string name="dialog_delete_all_msg">所有备忘录将被永久删除，此操作无法撤销。</string>
     <string name="dialog_delete_confirm">删除</string>
+
+    <!-- 朗读 -->
+    <string name="btn_play">开始朗读</string>
+    <string name="btn_stop">停止朗读</string>
+    <string name="label_speed_short">语速</string>
+    <string name="label_pitch_short">音调</string>
+    <string name="status_idle">就绪</string>
+    <string name="status_playing">正在循环朗读…</string>
+    <string name="tts_error_not_ready">语音引擎未就绪</string>
+    <string name="tts_error_empty">内容为空，无法朗读</string>
+    <string name="tts_error_speak">当前语音引擎无法朗读该内容</string>
+    <string name="tts_channel_name">朗读</string>
+    <string name="tts_notification_title">备忘录朗读中</string>
+    <string name="tts_notification_text">正在后台循环朗读</string>
 </resources>
