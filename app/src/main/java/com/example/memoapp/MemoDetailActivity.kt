@@ -178,8 +178,10 @@ class MemoDetailActivity : AppCompatActivity(), TtsService.TtsCallback {
 
     private fun showStatus(message: String) {
         binding.tvStatus.text = message
+        // 必须先取消待执行的复位任务，否则播放开始后，
+        // 上一条提示信息排的 2.5 秒复位仍会触发，把"正在循环朗读"改回"就绪"
+        binding.tvStatus.removeCallbacks(statusResetter)
         if (message != getString(R.string.status_playing)) {
-            binding.tvStatus.removeCallbacks(statusResetter)
             binding.tvStatus.postDelayed(statusResetter, STATUS_RESET_MS)
         }
     }
