@@ -5,20 +5,18 @@ plugins {
     id("org.jetbrains.kotlin.kapt")
 }
 
-// 在脚本顶层读取签名信息，避免在 android {} 内读取时机不确定。
-// 本地构建可在 gradle.properties 中配置；CI 通过环境变量注入。
-val releaseStoreFile: String? =
-    (project.findProperty("RELEASE_STORE_FILE") as String?) ?: System.getenv("RELEASE_STORE_FILE")
-val releaseStorePassword: String? =
-    (project.findProperty("RELEASE_STORE_PASSWORD") as String?) ?: System.getenv("RELEASE_STORE_PASSWORD")
-val releaseKeyAlias: String? =
-    (project.findProperty("RELEASE_KEY_ALIAS") as String?) ?: System.getenv("RELEASE_KEY_ALIAS")
-val releaseKeyPassword: String? =
-    (project.findProperty("RELEASE_KEY_PASSWORD") as String?) ?: System.getenv("RELEASE_KEY_PASSWORD")
+// 签名信息优先读 -P 参数，其次读环境变量。
+// 全部通过 Gradle Provider 延迟求值，避免配置阶段读取时机问题。
+fun secret(name: String): org.gradle.api.provider.Provider<String> =
+    providers.gradleProperty(name).orElse(providers.environmentVariable(name))
 
-val hasReleaseSigning = listOf(
-    releaseStoreFile, releaseStorePassword, releaseKeyAlias, releaseKeyPassword
-).all { !it.isNullOrBlank() }
+val releaseStoreFile = secret("RELEASE_STORE_FILE")
+val releaseStorePassword = secret("RELEASE_STORE_PASSWORD")
+val releaseKeyAlias = secret("RELEASE_KEY_ALIAS")
+val releaseKeyPassword = secret("RELEASE_KEY_PASSWORD")
+
+// 有任意一项配置了 release 签名（调试包构建时通常都没有）
+val hasReleaseSigning = releaseStoreFile.isPresent
 
 android {
     namespace = "com.example.memoapp"
@@ -35,10 +33,10 @@ android {
     signingConfigs {
         if (hasReleaseSigning) {
             create("release") {
-                storeFile = file(releaseStoreFile!!)
-                storePassword = releaseStorePassword
-                keyAlias = releaseKeyAlias
-                keyPassword = releaseKeyPassword
+                storeFile = file(releaseStoreFile.get())
+                storePassword = releaseStorePassword.orNull
+                keyAlias = releaseKeyAlias.orNull
+                keyPassword = releaseKeyPassword.orNull
             }
         }
     }

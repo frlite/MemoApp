@@ -49,7 +49,12 @@ jobs:
         RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
         RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
       run: |
-        ./gradlew printReleaseSigningStatus assembleRelease
+        ./gradlew printReleaseSigningStatus assembleRelease \
+          -PRELEASE_STORE_FILE="$RELEASE_STORE_FILE" \
+          -PRELEASE_STORE_PASSWORD="$RELEASE_STORE_PASSWORD" \
+          -PRELEASE_KEY_ALIAS="$RELEASE_KEY_ALIAS" \
+          -PRELEASE_KEY_PASSWORD="$RELEASE_KEY_PASSWORD" \
+          --no-configuration-cache
 
     - name: Build debug APK
       if: startsWith(github.ref, 'refs/')
