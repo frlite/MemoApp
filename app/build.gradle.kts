@@ -17,6 +17,23 @@ android {
         versionName = "1.1"
     }
 
+    signingConfigs {
+        create("release") {
+            // 从 gradle.properties 或环境变量读取，避免把密钥写进仓库
+            val storePath = (findProperty("RELEASE_STORE_FILE") as String?)
+                ?: System.getenv("RELEASE_STORE_FILE")
+            if (storePath != null) {
+                storeFile = file(storePath)
+                storePassword = (findProperty("RELEASE_STORE_PASSWORD") as String?)
+                    ?: System.getenv("RELEASE_STORE_PASSWORD")
+                keyAlias = (findProperty("RELEASE_KEY_ALIAS") as String?)
+                    ?: System.getenv("RELEASE_KEY_ALIAS")
+                keyPassword = (findProperty("RELEASE_KEY_PASSWORD") as String?)
+                    ?: System.getenv("RELEASE_KEY_PASSWORD")
+            }
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false
@@ -24,6 +41,10 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+            // 仅在提供签名信息时启用，否则产出未签名包
+            if (findProperty("RELEASE_STORE_FILE") != null || System.getenv("RELEASE_STORE_FILE") != null) {
+                signingConfig = signingConfigs.getByName("release")
+            }
         }
     }
 
