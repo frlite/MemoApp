@@ -10,6 +10,7 @@ import androidx.recyclerview.widget.LinearLayoutManager
 import com.example.memoapp.adapter.MemoAdapter
 import com.example.memoapp.data.MemoDatabase
 import com.example.memoapp.databinding.ActivityMemoListBinding
+import com.example.memoapp.util.TextStats
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 
@@ -74,6 +75,13 @@ class MemoListActivity : AppCompatActivity() {
             database.memoDao().getAllMemos().collectLatest { memos ->
                 memoAdapter.submitList(memos)
                 binding.tvEmpty.visibility = if (memos.isEmpty()) View.VISIBLE else View.GONE
+
+                // 顶部统计：条目数 + 总字数
+                binding.toolbar.subtitle = getString(
+                    R.string.stats_summary,
+                    memos.size,
+                    memos.sumOf { TextStats.countChars(it.content) }
+                )
             }
         }
     }

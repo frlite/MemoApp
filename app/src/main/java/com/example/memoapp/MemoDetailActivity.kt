@@ -13,10 +13,12 @@ import android.os.PowerManager
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
+import androidx.core.widget.doAfterTextChanged
 import androidx.lifecycle.lifecycleScope
 import com.example.memoapp.data.MemoDatabase
 import com.example.memoapp.data.MemoEntity
 import com.example.memoapp.databinding.ActivityMemoDetailBinding
+import com.example.memoapp.util.TextStats
 import kotlinx.coroutines.launch
 import java.util.Locale
 
@@ -77,6 +79,7 @@ class MemoDetailActivity : AppCompatActivity(), TtsService.TtsCallback {
 
         binding.toolbar.setNavigationOnClickListener { finish() }
         setupSliders()
+        setupCharCount()
         setupPlayButton()
         askNotificationPermission()
 
@@ -174,6 +177,19 @@ class MemoDetailActivity : AppCompatActivity(), TtsService.TtsCallback {
 
     private fun updatePitchLabel(value: Float) {
         binding.tvPitchValue.text = String.format(Locale.getDefault(), "%.1fx", value)
+    }
+
+    /** 编辑过程中实时更新字数，空内容也显示「共 0 字」。 */
+    private fun setupCharCount() {
+        updateCharCount()
+        binding.etContent.doAfterTextChanged { updateCharCount() }
+    }
+
+    private fun updateCharCount() {
+        binding.tvCharCount.text = getString(
+            R.string.char_count_detail,
+            TextStats.countChars(binding.etContent.text)
+        )
     }
 
     private fun setupPlayButton() {

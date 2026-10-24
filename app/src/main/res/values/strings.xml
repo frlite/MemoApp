@@ -35,4 +35,9 @@
     <string name="tts_notification_title">备忘录朗读中</string>
     <string name="tts_notification_text">正在后台循环朗读</string>
     <string name="battery_opt_denied">未豁免电池优化，锁屏后可能被系统暂停</string>
+
+    <!-- 字数统计 -->
+    <string name="char_count">%1$d 字</string>
+    <string name="char_count_detail">共 %1$d 字</string>
+    <string name="stats_summary">%1$d 条 · %2$d 字</string>
 </resources>

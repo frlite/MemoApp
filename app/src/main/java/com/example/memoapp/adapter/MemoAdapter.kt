@@ -8,6 +8,7 @@ import androidx.recyclerview.widget.ListAdapter
 import androidx.recyclerview.widget.RecyclerView
 import com.example.memoapp.data.MemoEntity
 import com.example.memoapp.databinding.ItemMemoBinding
+import com.example.memoapp.util.TextStats
 
 class MemoAdapter(
     private val onClick: (MemoEntity) -> Unit,
@@ -33,6 +34,11 @@ class MemoAdapter(
                 item.updatedAt,
                 System.currentTimeMillis(),
                 DateUtils.MINUTE_IN_MILLIS
+            )
+
+            binding.tvCount.text = binding.root.context.getString(
+                com.example.memoapp.R.string.char_count,
+                TextStats.countChars(item.content)
             )
 
             binding.root.setOnClickListener { onClick(item) }
