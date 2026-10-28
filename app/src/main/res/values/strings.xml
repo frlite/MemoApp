@@ -42,6 +42,10 @@
     <string name="loop_infinite_full">无限循环</string>
     <string name="loop_times">%1$d 次</string>
     <string name="loop_dialog_title">循环次数</string>
+    <string name="loop_custom_option">自定义…</string>
+    <string name="loop_custom_title">自定义循环次数</string>
+    <string name="loop_custom_hint">输入 1 – %1$d 的整数</string>
+    <string name="loop_custom_error">请输入 1 – %1$d 之间的整数</string>
     <string name="loop_finished">已朗读 %1$d 次，已停止</string>
     <string name="status_loop_progress">第 %1$d/%2$d 遍</string>
 

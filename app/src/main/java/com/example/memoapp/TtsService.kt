@@ -129,6 +129,8 @@ class TtsService : Service(), TextToSpeech.OnInitListener {
                     }
 
                     currentLoop++
+                    // 长循环可能超过唤醒锁超时，每遍续期一次
+                    acquireWakeLock()
                     if (speakCurrent()) {
                         // 循环次数有限时，通知栏同步显示第几遍
                         enterForeground()

@@ -10,6 +10,8 @@ import android.os.Build
 import android.os.Bundle
 import android.os.IBinder
 import android.os.PowerManager
+import android.text.InputType
+import android.widget.EditText
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
@@ -212,24 +214,73 @@ class MemoDetailActivity : AppCompatActivity(), TtsService.TtsCallback {
         }
     }
 
-    /** 循环次数：无限 / 1 / 2 / 3 / 5 / 10 遍。选定后从下一次朗读生效。 */
+    /** 循环次数：无限 / 10 / 20 / 50 / 80 / 100 遍，或自定义。 */
     private fun showLoopCountDialog() {
-        val options = intArrayOf(0, 1, 2, 3, 5, 10)
+        val presets = intArrayOf(0, 10, 20, 50, 80, 100)
+        val options = presets.toMutableList()
+
+        // 当前是自定义值时也列出来并选中，否则打开对话框看不到当前设置
+        if (loopCount > 0 && loopCount !in presets) options.add(loopCount)
+        options.add(CUSTOM_ENTRY)
+
         val labels = options.map {
-            if (it == 0) getString(R.string.loop_infinite_full)
-            else getString(R.string.loop_times, it)
+            when (it) {
+                0 -> getString(R.string.loop_infinite_full)
+                CUSTOM_ENTRY -> getString(R.string.loop_custom_option)
+                else -> getString(R.string.loop_times, it)
+            }
         }.toTypedArray()
-        val checked = options.indexOf(loopCount).takeIf { it >= 0 } ?: 0
 
         AlertDialog.Builder(this)
             .setTitle(R.string.loop_dialog_title)
-            .setSingleChoiceItems(labels, checked) { dialog, which ->
-                loopCount = options[which]
-                updateLoopButton()
+            .setSingleChoiceItems(labels, options.indexOf(loopCount)) { dialog, which ->
                 dialog.dismiss()
+                val value = options[which]
+                if (value == CUSTOM_ENTRY) {
+                    showCustomLoopCountDialog()
+                } else {
+                    loopCount = value
+                    updateLoopButton()
+                }
             }
             .setNegativeButton(android.R.string.cancel, null)
             .show()
+    }
+
+    /** 自定义次数：1 ~ [MAX_LOOP_COUNT]，非数字/越界时留在对话框继续改。 */
+    private fun showCustomLoopCountDialog() {
+        val input = EditText(this).apply {
+            inputType = InputType.TYPE_CLASS_NUMBER
+            hint = getString(R.string.loop_custom_hint, MAX_LOOP_COUNT)
+            if (loopCount > 0) {
+                setText(loopCount.toString())
+                setSelection(text.length)
+            }
+            val horizontal = (20 * resources.displayMetrics.density).toInt()
+            setPadding(horizontal, horizontal / 2, horizontal, 0)
+        }
+
+        val dialog = AlertDialog.Builder(this)
+            .setTitle(R.string.loop_custom_title)
+            .setView(input)
+            .setPositiveButton(android.R.string.ok, null)
+            .setNegativeButton(android.R.string.cancel, null)
+            .create()
+
+        // 用 OnShowListener 接管确定按钮，校验不通过时不关闭对话框
+        dialog.setOnShowListener {
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                val value = input.text.toString().toIntOrNull()
+                if (value == null || value < 1 || value > MAX_LOOP_COUNT) {
+                    input.error = getString(R.string.loop_custom_error, MAX_LOOP_COUNT)
+                    return@setOnClickListener
+                }
+                loopCount = value
+                updateLoopButton()
+                dialog.dismiss()
+            }
+        }
+        dialog.show()
     }
 
     private fun setupPlayButton() {
@@ -430,5 +481,11 @@ class MemoDetailActivity : AppCompatActivity(), TtsService.TtsCallback {
         private const val NEW_MEMO = -1L
         private const val STATUS_RESET_MS = 2500L
         private const val KEY_BATTERY_PROMPTED = "battery_opt_prompted"
+
+        /** 自定义循环次数在选项列表中的占位值。 */
+        private const val CUSTOM_ENTRY = -1
+
+        /** 自定义循环次数上限，避免误输入导致无限期朗读。 */
+        private const val MAX_LOOP_COUNT = 9999
     }
 }
