@@ -27,7 +27,7 @@
     <string name="label_speed_short">语速</string>
     <string name="label_pitch_short">音调</string>
     <string name="status_idle">就绪</string>
-    <string name="status_playing">正在循环朗读…</string>
+    <string name="status_playing">正在朗读…</string>
     <string name="tts_error_not_ready">语音引擎未就绪</string>
     <string name="tts_error_empty">内容为空，无法朗读</string>
     <string name="tts_error_speak">当前语音引擎无法朗读该内容</string>
@@ -35,6 +35,15 @@
     <string name="tts_notification_title">备忘录朗读中</string>
     <string name="tts_notification_text">正在后台循环朗读</string>
     <string name="battery_opt_denied">未豁免电池优化，锁屏后可能被系统暂停</string>
+
+    <!-- 循环次数 -->
+    <string name="label_loop_short">循环</string>
+    <string name="loop_infinite">无限</string>
+    <string name="loop_infinite_full">无限循环</string>
+    <string name="loop_times">%1$d 次</string>
+    <string name="loop_dialog_title">循环次数</string>
+    <string name="loop_finished">已朗读 %1$d 次，已停止</string>
+    <string name="status_loop_progress">第 %1$d/%2$d 遍</string>
 
     <!-- 字数统计 -->
     <string name="char_count">%1$d 字</string>

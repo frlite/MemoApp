@@ -36,6 +36,12 @@ class TtsService : Service(), TextToSpeech.OnInitListener {
     private var currentRate: Float = 1.0f
     private var currentPitch: Float = 1.0f
 
+    /** 设定循环次数，0 表示无限循环。 */
+    private var loopCount: Int = 0
+
+    /** 当前正在播第几遍，从 1 开始。 */
+    private var currentLoop: Int = 1
+
     /** 正在朗读的备忘录 id，通知栏点击后据此回到对应详情页。 */
     private var currentMemoId: Long = NO_MEMO
 
@@ -55,6 +61,12 @@ class TtsService : Service(), TextToSpeech.OnInitListener {
         fun onReadyChanged(isReady: Boolean)
         fun onPlayingChanged(isPlaying: Boolean)
         fun onSpeakFailed(reason: String)
+
+        /** 有限循环时的进度，played 从 1 开始；无限循环不回调。 */
+        fun onLoopProgress(played: Int, total: Int) = Unit
+
+        /** 达到设定次数后自动停止。 */
+        fun onPlaybackFinished(total: Int) = Unit
     }
 
     var callback: TtsCallback? = null
@@ -106,10 +118,23 @@ class TtsService : Service(), TextToSpeech.OnInitListener {
             tts?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
                 override fun onStart(utteranceId: String?) = Unit
 
-                // 朗读完毕立即复读，实现无限循环
+                // 一遍读完：未达设定次数则继续，达到则停止
                 override fun onDone(utteranceId: String?) {
-                    if (isPlaying && utteranceId == UTTERANCE_ID) {
-                        speakCurrent()
+                    if (!isPlaying || utteranceId != UTTERANCE_ID) return
+
+                    val hasMore = loopCount == 0 || currentLoop < loopCount
+                    if (!hasMore) {
+                        finishPlayback()
+                        return
+                    }
+
+                    currentLoop++
+                    if (speakCurrent()) {
+                        // 循环次数有限时，通知栏同步显示第几遍
+                        enterForeground()
+                        if (loopCount > 0) callback?.onLoopProgress(currentLoop, loopCount)
+                    } else {
+                        finishPlayback()
                     }
                 }
 
@@ -135,8 +160,9 @@ class TtsService : Service(), TextToSpeech.OnInitListener {
     /**
      * 开始朗读。引擎不可用或内容为空时通过回调返回原因，不静默失败。
      * memoId 用于让通知栏点击后回到正在朗读的备忘录。
+     * loopCount 为循环次数，0 表示无限循环。
      */
-    fun speak(text: String, rate: Float, pitch: Float, memoId: Long) {
+    fun speak(text: String, rate: Float, pitch: Float, memoId: Long, loopCount: Int) {
         if (!isTtsReady) {
             callback?.onSpeakFailed(getString(R.string.tts_error_not_ready))
             return
@@ -151,6 +177,8 @@ class TtsService : Service(), TextToSpeech.OnInitListener {
         currentRate = rate
         currentPitch = pitch
         currentMemoId = memoId
+        this.loopCount = if (loopCount <= 0) 0 else loopCount
+        currentLoop = 1
 
         enterForeground()
         acquireWakeLock()
@@ -158,6 +186,7 @@ class TtsService : Service(), TextToSpeech.OnInitListener {
 
         if (speakCurrent()) {
             callback?.onPlayingChanged(true)
+            if (this.loopCount > 0) callback?.onLoopProgress(currentLoop, this.loopCount)
         } else {
             isPlaying = false
             releaseWakeLock()
@@ -174,6 +203,22 @@ class TtsService : Service(), TextToSpeech.OnInitListener {
         exitForeground()
         if (isForegroundStartedByService) stopSelf()
         if (wasPlaying) callback?.onPlayingChanged(false)
+    }
+
+    /**
+     * 达到设定循环次数后自然结束。
+     * 与用户主动停止区分：会额外回调 onPlaybackFinished，供界面提示。
+     */
+    private fun finishPlayback() {
+        if (!isPlaying) return
+        val played = currentLoop
+        isPlaying = false
+        tts?.stop()
+        releaseWakeLock()
+        exitForeground()
+        callback?.onPlayingChanged(false)
+        callback?.onPlaybackFinished(played)
+        if (isForegroundStartedByService) stopSelf()
     }
 
     fun isPlaying(): Boolean = isPlaying
@@ -264,9 +309,15 @@ class TtsService : Service(), TextToSpeech.OnInitListener {
             PendingIntent.FLAG_IMMUTABLE
         )
 
+        val text = if (loopCount > 0) {
+            getString(R.string.status_loop_progress, currentLoop, loopCount)
+        } else {
+            getString(R.string.tts_notification_text)
+        }
+
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle(getString(R.string.tts_notification_title))
-            .setContentText(getString(R.string.tts_notification_text))
+            .setContentText(text)
             .setSmallIcon(android.R.drawable.ic_media_play)
             .setContentIntent(contentIntent)
             .addAction(

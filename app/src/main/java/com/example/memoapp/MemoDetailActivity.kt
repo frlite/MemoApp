@@ -11,6 +11,7 @@ import android.os.Bundle
 import android.os.IBinder
 import android.os.PowerManager
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import androidx.core.widget.doAfterTextChanged
@@ -36,6 +37,9 @@ class MemoDetailActivity : AppCompatActivity(), TtsService.TtsCallback {
     private var memoId: Long = NEW_MEMO
     private var existingMemo: MemoEntity? = null
     private var isLoaded = false
+
+    /** 循环次数，0 表示无限循环。 */
+    private var loopCount: Int = 0
 
     private var ttsService: TtsService? = null
     private var isBound = false
@@ -80,6 +84,7 @@ class MemoDetailActivity : AppCompatActivity(), TtsService.TtsCallback {
         binding.toolbar.setNavigationOnClickListener { finish() }
         setupSliders()
         setupCharCount()
+        setupLoopCount()
         setupPlayButton()
         askNotificationPermission()
 
@@ -107,6 +112,8 @@ class MemoDetailActivity : AppCompatActivity(), TtsService.TtsCallback {
 
         memoId = targetId
         existingMemo = null
+        loopCount = 0
+        updateLoopButton()
         binding.etContent.setText("")
         binding.toolbar.setTitle(R.string.title_new_memo)
         loadMemo(switchPlayback = true)
@@ -192,6 +199,39 @@ class MemoDetailActivity : AppCompatActivity(), TtsService.TtsCallback {
         )
     }
 
+    private fun setupLoopCount() {
+        updateLoopButton()
+        binding.btnLoopCount.setOnClickListener { showLoopCountDialog() }
+    }
+
+    private fun updateLoopButton() {
+        binding.btnLoopCount.text = if (loopCount == 0) {
+            getString(R.string.loop_infinite)
+        } else {
+            getString(R.string.loop_times, loopCount)
+        }
+    }
+
+    /** 循环次数：无限 / 1 / 2 / 3 / 5 / 10 遍。选定后从下一次朗读生效。 */
+    private fun showLoopCountDialog() {
+        val options = intArrayOf(0, 1, 2, 3, 5, 10)
+        val labels = options.map {
+            if (it == 0) getString(R.string.loop_infinite_full)
+            else getString(R.string.loop_times, it)
+        }.toTypedArray()
+        val checked = options.indexOf(loopCount).takeIf { it >= 0 } ?: 0
+
+        AlertDialog.Builder(this)
+            .setTitle(R.string.loop_dialog_title)
+            .setSingleChoiceItems(labels, checked) { dialog, which ->
+                loopCount = options[which]
+                updateLoopButton()
+                dialog.dismiss()
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .show()
+    }
+
     private fun setupPlayButton() {
         binding.btnPlayPause.setOnClickListener {
             val service = ttsService
@@ -220,7 +260,8 @@ class MemoDetailActivity : AppCompatActivity(), TtsService.TtsCallback {
                         text,
                         binding.sliderSpeed.value,
                         binding.sliderPitch.value,
-                        savedId
+                        savedId,
+                        loopCount
                     )
                 }
             }
@@ -232,18 +273,22 @@ class MemoDetailActivity : AppCompatActivity(), TtsService.TtsCallback {
             if (isPlaying) R.string.btn_stop else R.string.btn_play
         )
         if (isPlaying) {
-            showStatus(getString(R.string.status_playing))
+            showStatus(getString(R.string.status_playing), keep = true)
         } else {
             showStatus(getString(R.string.status_idle))
         }
     }
 
-    private fun showStatus(message: String) {
+    /**
+     * @param keep true 表示状态在播放期间常驻，不安排自动复位
+     *        （例如"正在朗读"和循环进度），否则 2.5 秒后恢复"就绪"。
+     */
+    private fun showStatus(message: String, keep: Boolean = false) {
         binding.tvStatus.text = message
         // 必须先取消待执行的复位任务，否则播放开始后，
         // 上一条提示信息排的 2.5 秒复位仍会触发，把"正在循环朗读"改回"就绪"
         binding.tvStatus.removeCallbacks(statusResetter)
-        if (message != getString(R.string.status_playing)) {
+        if (!keep) {
             binding.tvStatus.postDelayed(statusResetter, STATUS_RESET_MS)
         }
     }
@@ -265,6 +310,8 @@ class MemoDetailActivity : AppCompatActivity(), TtsService.TtsCallback {
                 binding.etContent.setText(memo.content)
                 binding.sliderSpeed.value = memo.speechRate
                 binding.sliderPitch.value = memo.pitch
+                loopCount = memo.loopCount
+                updateLoopButton()
                 binding.toolbar.setTitle(R.string.title_edit_memo)
 
                 if (switchPlayback) {
@@ -274,7 +321,8 @@ class MemoDetailActivity : AppCompatActivity(), TtsService.TtsCallback {
                             memo.content,
                             memo.speechRate,
                             memo.pitch,
-                            memo.id
+                            memo.id,
+                            memo.loopCount
                         )
                     }
                 }
@@ -292,6 +340,7 @@ class MemoDetailActivity : AppCompatActivity(), TtsService.TtsCallback {
         val content = binding.etContent.text.toString().trim()
         val rate = binding.sliderSpeed.value
         val pitch = binding.sliderPitch.value
+        val loop = loopCount
         val current = existingMemo
 
         if (current == null && content.isEmpty()) {
@@ -301,7 +350,8 @@ class MemoDetailActivity : AppCompatActivity(), TtsService.TtsCallback {
         if (current != null &&
             current.content == content &&
             current.speechRate == rate &&
-            current.pitch == pitch
+            current.pitch == pitch &&
+            current.loopCount == loop
         ) {
             onSaved?.invoke(current.id)
             return
@@ -310,7 +360,12 @@ class MemoDetailActivity : AppCompatActivity(), TtsService.TtsCallback {
         lifecycleScope.launch {
             if (current == null) {
                 val newId = database.memoDao().insert(
-                    MemoEntity(content = content, speechRate = rate, pitch = pitch)
+                    MemoEntity(
+                        content = content,
+                        speechRate = rate,
+                        pitch = pitch,
+                        loopCount = loop
+                    )
                 )
                 // 回填 id，使后续保存走更新分支、朗读能关联到这条备忘录
                 memoId = newId
@@ -318,7 +373,8 @@ class MemoDetailActivity : AppCompatActivity(), TtsService.TtsCallback {
                     id = newId,
                     content = content,
                     speechRate = rate,
-                    pitch = pitch
+                    pitch = pitch,
+                    loopCount = loop
                 )
                 onSaved?.invoke(newId)
             } else {
@@ -327,6 +383,7 @@ class MemoDetailActivity : AppCompatActivity(), TtsService.TtsCallback {
                         content = content,
                         speechRate = rate,
                         pitch = pitch,
+                        loopCount = loop,
                         updatedAt = System.currentTimeMillis()
                     )
                 )
@@ -347,6 +404,15 @@ class MemoDetailActivity : AppCompatActivity(), TtsService.TtsCallback {
     override fun onSpeakFailed(reason: String) {
         updatePlayButton(false)
         showStatus(reason)
+    }
+
+    override fun onLoopProgress(played: Int, total: Int) {
+        showStatus(getString(R.string.status_loop_progress, played, total), keep = true)
+    }
+
+    override fun onPlaybackFinished(total: Int) {
+        updatePlayButton(false)
+        showStatus(getString(R.string.loop_finished, total))
     }
 
     override fun onDestroy() {
